@@ -1,0 +1,1183 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>중고차 상품화 관리 대시보드</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif; }
+    .kanban-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .kanban-board { display: flex; gap: 12px; min-width: max-content; }
+    .kanban-col { width: 200px; min-width: 200px; }
+    @media (max-width: 640px) { .kanban-col { width: 168px; min-width: 168px; } }
+    .card-hover { transition: box-shadow 0.15s, transform 0.15s; }
+    .card-hover:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.12); transform: translateY(-2px); cursor: pointer; }
+    .modal-overlay { animation: fadeIn 0.15s ease; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .modal-box { animation: slideUp 0.2s ease; }
+    @keyframes slideUp { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600; }
+    ::-webkit-scrollbar { height: 6px; width: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    .step-bar { display: flex; align-items: center; overflow-x: auto; }
+    .step-item { flex-shrink: 0; display: flex; align-items: center; }
+    /* 모바일 터치 영역 확보 */
+    @media (max-width: 640px) {
+      .card-hover:hover { transform: none; box-shadow: none; }
+      .card-hover:active { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useMemo, useRef, useEffect } = React;
+
+    // ─── 단계 ──────────────────────────────────────────────────────────────
+    const STAGES = [
+      { id: 'pickup',        label: '픽업',    color: 'bg-blue-100 text-blue-700',     dot: 'bg-blue-400',   header: 'bg-blue-100'   },
+      { id: 'pickup_done',   label: '픽업완료', color: 'bg-indigo-100 text-indigo-700', dot: 'bg-indigo-400', header: 'bg-indigo-100' },
+      { id: 'polish',        label: '광택',    color: 'bg-violet-100 text-violet-700', dot: 'bg-violet-400', header: 'bg-violet-100' },
+      { id: 'wash',          label: '세차',    color: 'bg-cyan-100 text-cyan-700',     dot: 'bg-cyan-400',   header: 'bg-cyan-100'   },
+      { id: 'out_req',       label: '출고요청', color: 'bg-amber-100 text-amber-700',   dot: 'bg-amber-400',  header: 'bg-amber-100'  },
+      { id: 'done',          label: '출고',    color: 'bg-green-100 text-green-700',   dot: 'bg-green-400',  header: 'bg-green-100'  },
+    ];
+
+    const STAGE_MAP = Object.fromEntries(STAGES.map(s => [s.id, s]));
+
+    // ─── 샘플 데이터 ────────────────────────────────────────────────────────
+    const INITIAL_VEHICLES = [
+      {
+        id: 'v1', plate: '12가 3456', model: '현대 아반떼 CN7', year: 2021,
+        intakeDate: '2026-06-08', company: '카리스모터스', phone: '010-1234-5678', stage: 'pickup',
+        delay: false, memo: '오후 2시 픽업 예정',
+        history: [{ stage: 'pickup', date: '2026-06-08 09:00', note: '픽업 요청 접수' }],
+        comments: [{ id: 'c1', author: '김민준', text: '픽업 기사 배정 완료했습니다.', date: '2026-06-08 09:30' }]
+      },
+      {
+        id: 'v2', plate: '34나 5678', model: '기아 K5 3세대', year: 2022,
+        intakeDate: '2026-06-08', company: '드라이브오토', phone: '010-9876-5432', stage: 'pickup',
+        delay: false, memo: '',
+        history: [{ stage: 'pickup', date: '2026-06-08 10:30', note: '픽업 기사 배정 완료' }],
+        comments: []
+      },
+      {
+        id: 'v3', plate: '56다 7890', model: '쉐보레 말리부 9세대', year: 2020,
+        intakeDate: '2026-06-07', company: '한국중고차', phone: '031-555-1234', stage: 'pickup_done',
+        delay: true, memo: '실내 오염 심함, 추가 작업 협의 필요',
+        history: [
+          { stage: 'pickup',      date: '2026-06-07 09:00', note: '픽업 요청' },
+          { stage: 'pickup_done', date: '2026-06-07 13:00', note: '픽업 완료 입고' },
+        ],
+        comments: [{ id: 'c1', author: '박지호', text: '실내 오염 심해서 추가 비용 협의 필요합니다. 업체에 연락했습니다.', date: '2026-06-07 15:00' }]
+      },
+      {
+        id: 'v4', plate: '78라 9012', model: '현대 소나타 DN8', year: 2022,
+        intakeDate: '2026-06-06', company: '스마트카딜러', phone: '010-3344-5566', stage: 'pickup_done',
+        delay: false, memo: '',
+        history: [
+          { stage: 'pickup',      date: '2026-06-06 09:00', note: '픽업 요청' },
+          { stage: 'pickup_done', date: '2026-06-06 14:00', note: '픽업 완료' },
+        ],
+        comments: []
+      },
+      {
+        id: 'v5', plate: '90마 1234', model: '기아 스포티지 NQ5', year: 2023,
+        intakeDate: '2026-06-05', company: '프리미엄오토', phone: '010-7788-9900', stage: 'polish',
+        delay: false, memo: '유리막 코팅 추가 요청',
+        history: [
+          { stage: 'pickup',      date: '2026-06-05 09:00', note: '픽업 요청' },
+          { stage: 'pickup_done', date: '2026-06-05 13:00', note: '픽업 완료' },
+          { stage: 'polish',      date: '2026-06-06 09:00', note: '광택 작업 진행 중' },
+        ],
+        comments: []
+      },
+      {
+        id: 'v6', plate: '11바 2345', model: '현대 그랜저 IG', year: 2019,
+        intakeDate: '2026-06-04', company: '카리스모터스', phone: '010-1234-5678', stage: 'polish',
+        delay: true, memo: '도막 상태 불량, 재광택 진행',
+        history: [
+          { stage: 'pickup',      date: '2026-06-04 09:00', note: '픽업' },
+          { stage: 'pickup_done', date: '2026-06-04 12:00', note: '픽업 완료' },
+          { stage: 'polish',      date: '2026-06-05 09:00', note: '1차 광택 후 재작업' },
+        ],
+        comments: [
+          { id: 'c1', author: '김민준', text: '1차 광택 완료했으나 도막 상태가 좋지 않아 재작업 들어갑니다.', date: '2026-06-05 11:00' },
+          { id: 'c2', author: '이서연', text: '재광택 예상 완료 시간은 오늘 오후 5시입니다.', date: '2026-06-05 13:30' },
+        ]
+      },
+      {
+        id: 'v7', plate: '22사 3456', model: '기아 K7 2세대', year: 2020,
+        intakeDate: '2026-06-04', company: '드라이브오토', phone: '010-9876-5432', stage: 'wash',
+        delay: false, memo: '',
+        history: [
+          { stage: 'pickup',      date: '2026-06-04 10:00', note: '픽업' },
+          { stage: 'pickup_done', date: '2026-06-04 15:00', note: '픽업 완료' },
+          { stage: 'polish',      date: '2026-06-05 10:00', note: '광택 완료' },
+          { stage: 'wash',        date: '2026-06-06 09:00', note: '세차 진행 중' },
+        ],
+        comments: []
+      },
+      {
+        id: 'v8', plate: '33아 4567', model: '현대 투싼 NX4', year: 2022,
+        intakeDate: '2026-06-05', company: '한국중고차', phone: '031-555-1234', stage: 'wash',
+        delay: false, memo: '',
+        history: [
+          { stage: 'pickup',      date: '2026-06-05 09:00', note: '픽업' },
+          { stage: 'pickup_done', date: '2026-06-05 13:00', note: '픽업 완료' },
+          { stage: 'polish',      date: '2026-06-06 09:00', note: '광택 완료' },
+          { stage: 'wash',        date: '2026-06-07 09:00', note: '실내외 세차 중' },
+        ],
+        comments: []
+      },
+      {
+        id: 'v9', plate: '44자 5678', model: 'BMW 320i G20', year: 2021,
+        intakeDate: '2026-06-03', company: '스마트카딜러', phone: '010-3344-5566', stage: 'done',
+        delay: false, memo: '',
+        history: [
+          { stage: 'pickup',      date: '2026-06-03 09:00', note: '픽업' },
+          { stage: 'pickup_done', date: '2026-06-03 13:00', note: '픽업 완료' },
+          { stage: 'polish',      date: '2026-06-04 09:00', note: '광택 완료' },
+          { stage: 'wash',        date: '2026-06-05 09:00', note: '세차 완료' },
+          { stage: 'done',        date: '2026-06-06 11:00', note: '업체 출고 완료' },
+        ],
+        comments: [{ id: 'c1', author: '최유진', text: '출고 완료. 업체 담당자 수령 확인했습니다.', date: '2026-06-06 11:30' }]
+      },
+      {
+        id: 'v10', plate: '55차 6789', model: '벤츠 C200 W206', year: 2023,
+        intakeDate: '2026-06-02', company: '프리미엄오토', phone: '010-7788-9900', stage: 'done',
+        delay: false, memo: '',
+        history: [
+          { stage: 'pickup',      date: '2026-06-02 10:00', note: '픽업' },
+          { stage: 'pickup_done', date: '2026-06-02 15:00', note: '픽업 완료' },
+          { stage: 'polish',      date: '2026-06-03 09:00', note: '광택 + 유리막 완료' },
+          { stage: 'wash',        date: '2026-06-04 09:00', note: '세차 완료' },
+          { stage: 'done',        date: '2026-06-05 10:00', note: '출고 완료' },
+        ],
+        comments: []
+      },
+    ];
+
+    // ─── 유틸 ────────────────────────────────────────────────────────────────
+    function dayDiff(dateStr) {
+      const d = new Date(dateStr);
+      const now = new Date('2026-06-08');
+      return Math.floor((now - d) / 86400000);
+    }
+
+    function StageBadge({ stageId, small }) {
+      const s = STAGE_MAP[stageId];
+      if (!s) return null;
+      return (
+        <span className={`badge ${s.color} ${small ? 'text-[10px] px-1.5' : ''}`}>
+          <span className={`inline-block w-1.5 h-1.5 rounded-full ${s.dot} mr-1`}></span>
+          {s.label}
+        </span>
+      );
+    }
+
+    function PhotoBadge({ uploaded, total }) {
+      const done = uploaded >= total;
+      return (
+        <span className={`badge ${done ? 'bg-emerald-100 text-emerald-700' : 'bg-red-50 text-red-500'}`}>
+          {done ? '✓' : '✗'} 사진 {uploaded}/{total}
+        </span>
+      );
+    }
+
+    // ─── 인라인 편집 공통 컴포넌트 ──────────────────────────────────────────
+    function EditableText({ value, onChange, prefix, placeholder = '클릭하여 입력', multiline = false }) {
+      const [editing, setEditing] = useState(false);
+      const [draft, setDraft]     = useState(value);
+
+      function save() {
+        onChange(draft.trim());
+        setEditing(false);
+      }
+      function cancel() { setDraft(value); setEditing(false); }
+
+      const inputCls = "text-sm border border-blue-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200 w-full";
+
+      if (editing) {
+        return (
+          <div className="space-y-1">
+            {multiline
+              ? <textarea autoFocus rows={3} value={draft} onChange={e => setDraft(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Escape') cancel(); }}
+                  className={`${inputCls} resize-none`} />
+              : <input autoFocus value={draft} onChange={e => setDraft(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') cancel(); }}
+                  className={inputCls} />
+            }
+            <div className="flex gap-1.5">
+              <button onClick={save} className="text-xs bg-blue-500 text-white rounded px-2 py-1 hover:bg-blue-600">저장</button>
+              <button onClick={cancel} className="text-xs text-slate-400 hover:text-slate-600">취소</button>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <button onClick={() => { setDraft(value); setEditing(true); }}
+          className="text-sm font-medium text-slate-700 hover:text-blue-600 flex items-start gap-1 group text-left w-full"
+          title="클릭하여 수정">
+          {prefix && <span>{prefix}</span>}
+          <span className={value ? '' : 'text-slate-400'}>{value || placeholder}</span>
+          <span className="text-[10px] text-slate-300 group-hover:text-blue-400 mt-0.5 shrink-0">✏</span>
+        </button>
+      );
+    }
+
+    // ─── 요약 카드 ───────────────────────────────────────────────────────────
+    function SummaryCards({ vehicles }) {
+      const total = vehicles.length;
+      const done  = vehicles.filter(v => v.stage === 'done').length;
+      const delay = vehicles.filter(v => v.delay).length;
+      const stageCounts = Object.fromEntries(STAGES.map(s => [s.id, vehicles.filter(v => v.stage === s.id).length]));
+
+      return (
+        <div className="mb-5 space-y-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: '전체 차량',   value: total,       color: 'text-slate-800' },
+              { label: '상품화 완료', value: done,        color: 'text-green-600' },
+              { label: '진행 중',     value: total - done, color: 'text-blue-600' },
+              { label: '지연',        value: delay,       color: delay > 0 ? 'text-red-500' : 'text-slate-400' },
+            ].map(c => (
+              <div key={c.label} className="bg-white rounded-xl shadow-sm p-4 border border-slate-100">
+                <p className="text-xs text-slate-500 mb-1">{c.label}</p>
+                <p className={`text-2xl font-bold ${c.color}`}>{c.value}<span className="text-sm font-normal text-slate-400 ml-1">대</span></p>
+              </div>
+            ))}
+          </div>
+          <div className="bg-white rounded-xl shadow-sm p-3 border border-slate-100 kanban-scroll">
+            <div className="flex gap-2 min-w-max">
+              {STAGES.map(s => (
+                <div key={s.id} className={`${s.header} rounded-lg px-4 py-2 text-center min-w-[80px]`}>
+                  <p className="text-lg font-bold text-slate-700">{stageCounts[s.id]}</p>
+                  <p className="text-[11px] text-slate-500 whitespace-nowrap">{s.label}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── 필터 바 ─────────────────────────────────────────────────────────────
+    function FilterBar({ vehicles, filter, setFilter }) {
+      const companies = useMemo(() => [...new Set(vehicles.map(v => v.company))].sort(), [vehicles]);
+
+      return (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-3 mb-4 flex flex-wrap gap-2 items-center overflow-x-auto">
+          <span className="text-xs font-semibold text-slate-500 mr-1">필터</span>
+
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="업체 검색..."
+              value={filter.company}
+              onChange={e => setFilter(f => ({...f, company: e.target.value}))}
+              className="text-sm border border-slate-200 rounded-lg pl-7 pr-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 w-32"
+            />
+            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">🏢</span>
+          </div>
+
+          <select
+            className="text-sm border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+            value={filter.stage}
+            onChange={e => setFilter(f => ({...f, stage: e.target.value}))}
+          >
+            <option value="">단계 전체</option>
+            {STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+
+          <select
+            className="text-sm border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+            value={filter.delay}
+            onChange={e => setFilter(f => ({...f, delay: e.target.value}))}
+          >
+            <option value="">지연 전체</option>
+            <option value="delay">지연만</option>
+            <option value="normal">정상만</option>
+          </select>
+
+          {(filter.company || filter.stage || filter.delay) && (
+            <button
+              onClick={() => setFilter({ company: '', stage: '', delay: '' })}
+              className="text-xs text-red-400 hover:text-red-600 underline"
+            >초기화</button>
+          )}
+        </div>
+      );
+    }
+
+    // ─── 카드 추가 폼 ────────────────────────────────────────────────────────
+    function AddCardForm({ onSubmit, onCancel }) {
+      const [plate,   setPlate]   = useState('');
+      const [model,   setModel]   = useState('');
+      const [company, setCompany] = useState('');
+      const [phone,   setPhone]   = useState('');
+      const [memo,    setMemo]    = useState('');
+      const plateRef = useRef(null);
+
+      useEffect(() => { plateRef.current?.focus(); }, []);
+
+      function handleSubmit(e) {
+        e.preventDefault();
+        if (!plate.trim()) { plateRef.current?.focus(); return; }
+        onSubmit({ plate: plate.trim(), model: model.trim(), company: company.trim(), phone: phone.trim(), memo: memo.trim() });
+      }
+
+      const inputCls = "w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 placeholder-slate-300";
+
+      return (
+        <form
+          onSubmit={handleSubmit}
+          className="bg-white rounded-xl border-2 border-blue-300 shadow-md p-3 mb-2"
+          onClick={e => e.stopPropagation()}
+        >
+          <input
+            ref={plateRef}
+            placeholder="차량번호 *"
+            value={plate}
+            onChange={e => setPlate(e.target.value)}
+            onKeyDown={e => e.key === 'Escape' && onCancel()}
+            className={`${inputCls} mb-1.5 font-semibold`}
+          />
+          <input
+            placeholder="차종"
+            value={model}
+            onChange={e => setModel(e.target.value)}
+            onKeyDown={e => e.key === 'Escape' && onCancel()}
+            className={`${inputCls} mb-1.5`}
+          />
+          <input
+            placeholder="업체명"
+            value={company}
+            onChange={e => setCompany(e.target.value)}
+            onKeyDown={e => e.key === 'Escape' && onCancel()}
+            className={`${inputCls} mb-1.5`}
+          />
+          <input
+            placeholder="전화번호"
+            value={phone}
+            onChange={e => setPhone(e.target.value)}
+            onKeyDown={e => e.key === 'Escape' && onCancel()}
+            className={`${inputCls} mb-1.5`}
+          />
+          <input
+            placeholder="메모 (선택)"
+            value={memo}
+            onChange={e => setMemo(e.target.value)}
+            onKeyDown={e => e.key === 'Escape' && onCancel()}
+            className={`${inputCls} mb-2.5`}
+          />
+          <div className="flex gap-1.5">
+            <button
+              type="submit"
+              className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs font-semibold rounded-lg py-1.5 transition-colors"
+            >추가</button>
+            <button
+              type="button"
+              onClick={onCancel}
+              className="px-3 text-xs text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-50 transition-colors"
+            >취소</button>
+          </div>
+        </form>
+      );
+    }
+
+    // ─── 차량 카드 (칸반) ────────────────────────────────────────────────────
+    function VehicleCard({ vehicle, onClick, onDragStart, isDragging, isDragOver, onCardDragOver, onChangeStage, isFirst, isLast, onMoveUp, onMoveDown }) {
+      const days = dayDiff(vehicle.intakeDate);
+      const stageIdx  = STAGES.findIndex(s => s.id === vehicle.stage);
+      const prevStage = STAGES[stageIdx - 1];
+      const nextStage = STAGES[stageIdx + 1];
+
+      function stopAnd(fn) {
+        return e => { e.stopPropagation(); fn(); };
+      }
+
+      return (
+        <div
+          draggable
+          onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; onDragStart(vehicle.id); }}
+          onDragEnd={() => onDragStart(null)}
+          onDragOver={e => { e.preventDefault(); onCardDragOver(vehicle.id); }}
+          onClick={() => onClick(vehicle)}
+          className={`relative bg-white rounded-lg shadow-sm border border-slate-100 p-3 card-hover select-none mb-2 transition-opacity ${isDragging ? 'opacity-30' : 'opacity-100'}`}
+          style={{ cursor: 'grab' }}
+        >
+          {isDragOver && !isDragging && (
+            <div className="absolute -top-1 left-0 right-0 h-0.5 bg-blue-400 rounded-full z-10" />
+          )}
+
+          {/* 상하 이동 버튼 */}
+          <div
+            className="absolute right-2 top-2 flex flex-col gap-0.5"
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              onPointerDown={stopAnd(onMoveUp)}
+              disabled={isFirst}
+              className="w-5 h-5 rounded bg-slate-50 hover:bg-slate-200 active:bg-slate-300 disabled:opacity-20 text-slate-400 flex items-center justify-center text-[10px] leading-none transition-colors"
+              title="위로"
+            >▲</button>
+            <button
+              onPointerDown={stopAnd(onMoveDown)}
+              disabled={isLast}
+              className="w-5 h-5 rounded bg-slate-50 hover:bg-slate-200 active:bg-slate-300 disabled:opacity-20 text-slate-400 flex items-center justify-center text-[10px] leading-none transition-colors"
+              title="아래로"
+            >▼</button>
+          </div>
+
+          {vehicle.delay && (
+            <span className="text-[10px] bg-red-50 text-red-500 font-semibold rounded px-1.5 py-0.5 mb-2 inline-block">⚠ 지연</span>
+          )}
+          <p className="font-bold text-slate-800 text-sm leading-tight pr-7">{vehicle.plate}</p>
+          <p className="text-[12px] text-slate-500 mt-0.5 mb-2 leading-tight">{vehicle.model}</p>
+          {vehicle.phone && (
+            <p className="text-[12px] text-slate-500 mb-2">📞 {vehicle.phone}</p>
+          )}
+          <div className="flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-50 pt-2 mt-1">
+            <span>🏢 {vehicle.company}</span>
+            <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+              <span>{days}일차</span>
+              {prevStage && (
+                <button
+                  onPointerDown={e => { e.stopPropagation(); onChangeStage(vehicle.id, prevStage.id); }}
+                  className="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-400 flex items-center justify-center text-xs leading-none"
+                  title={prevStage.label}
+                >‹</button>
+              )}
+              {nextStage && (
+                <button
+                  onPointerDown={e => { e.stopPropagation(); onChangeStage(vehicle.id, nextStage.id); }}
+                  className="w-5 h-5 rounded bg-blue-50 hover:bg-blue-100 active:bg-blue-200 text-blue-400 flex items-center justify-center text-xs leading-none"
+                  title={nextStage.label}
+                >›</button>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── 칸반 보드 ───────────────────────────────────────────────────────────
+    function KanbanBoard({ vehicles, onCardClick, dragId, dragOverId, dragOverStage, onDragStart, onDragOver, onDragLeave, onDrop, onCardDragOver, onChangeStage, onMoveInColumn, addingStage, onAddStart, onAddSubmit, onAddCancel }) {
+      return (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4">
+          <div className="kanban-scroll">
+            <div className="kanban-board">
+              {STAGES.map(stage => {
+                const cols = vehicles.filter(v => v.stage === stage.id);
+                const isOver   = dragOverStage === stage.id;
+                const isAdding = addingStage   === stage.id;
+                return (
+                  <div
+                    key={stage.id}
+                    className="kanban-col"
+                    onDragOver={e => { e.preventDefault(); onDragOver(stage.id); }}
+                    onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) onDragLeave(); }}
+                    onDrop={() => onDrop(stage.id)}
+                    onDoubleClick={() => !isAdding && onAddStart(stage.id)}
+                  >
+                    {/* 컬럼 헤더 */}
+                    <div className={`${stage.header} rounded-lg px-3 py-2 mb-2 flex items-center justify-between transition-all ${isOver ? 'ring-2 ring-blue-400 ring-offset-1' : ''}`}>
+                      <span className="text-xs font-bold text-slate-600">{stage.label}</span>
+                      <div className="flex items-center gap-1">
+                        <span className={`badge ${stage.color} text-[11px]`}>{cols.length}</span>
+                        <button
+                          onClick={e => { e.stopPropagation(); onAddStart(stage.id); }}
+                          className="w-5 h-5 rounded-full bg-white/70 hover:bg-white text-slate-400 hover:text-blue-500 flex items-center justify-center text-base leading-none transition-colors"
+                          title="카드 추가"
+                        >+</button>
+                      </div>
+                    </div>
+
+                    {/* 카드 목록 */}
+                    <div className={`min-h-[60px] rounded-lg transition-all ${isOver && cols.length === 0 ? 'bg-blue-50 ring-2 ring-blue-200 ring-dashed p-1' : ''}`}>
+                      {cols.map((v, i) => (
+                        <VehicleCard
+                          key={v.id}
+                          vehicle={v}
+                          onClick={onCardClick}
+                          onDragStart={onDragStart}
+                          isDragging={dragId === v.id}
+                          isDragOver={dragOverId === v.id}
+                          onCardDragOver={onCardDragOver}
+                          onChangeStage={onChangeStage}
+                          isFirst={i === 0}
+                          isLast={i === cols.length - 1}
+                          onMoveUp={() => onMoveInColumn(v.id, 'up')}
+                          onMoveDown={() => onMoveInColumn(v.id, 'down')}
+                        />
+                      ))}
+                      {isOver && cols.length === 0 && (
+                        <div className="border-2 border-dashed border-blue-300 rounded-lg p-4 text-center text-blue-300 text-xs">여기에 놓기</div>
+                      )}
+                      {!isOver && cols.length === 0 && !isAdding && (
+                        <div
+                          className="border-2 border-dashed border-slate-100 rounded-lg p-4 text-center text-slate-300 text-xs cursor-pointer hover:border-blue-200 hover:text-blue-300 transition-colors"
+                          onDoubleClick={() => onAddStart(stage.id)}
+                        >더블클릭으로 추가</div>
+                      )}
+                    </div>
+
+                    {/* 추가 폼 */}
+                    {isAdding && (
+                      <AddCardForm
+                        onSubmit={data => onAddSubmit(stage.id, data)}
+                        onCancel={onAddCancel}
+                      />
+                    )}
+
+                    {/* 추가 버튼 */}
+                    {!isAdding && cols.length > 0 && (
+                      <button
+                        onClick={() => onAddStart(stage.id)}
+                        className="w-full mt-1 py-1.5 rounded-lg text-xs text-slate-400 hover:text-blue-500 hover:bg-blue-50 transition-colors text-center"
+                      >+ 카드 추가</button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── 진행 단계 바 ────────────────────────────────────────────────────────
+    function StageProgressBar({ currentStage }) {
+      const currentIdx = STAGES.findIndex(s => s.id === currentStage);
+      return (
+        <div className="step-bar gap-0 py-2 mb-1">
+          {STAGES.map((s, i) => {
+            const done   = i < currentIdx;
+            const active = i === currentIdx;
+            return (
+              <div key={s.id} className="step-item">
+                <div className="flex flex-col items-center">
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all
+                    ${done   ? 'bg-blue-500 border-blue-500 text-white'
+                    : active ? 'bg-white border-blue-500 text-blue-600'
+                    :          'bg-white border-slate-200 text-slate-300'}`}>
+                    {done ? '✓' : i + 1}
+                  </div>
+                  <span className={`text-[10px] mt-1 whitespace-nowrap ${active ? 'text-blue-600 font-bold' : done ? 'text-blue-400' : 'text-slate-300'}`}>
+                    {s.label}
+                  </span>
+                </div>
+                {i < STAGES.length - 1 && (
+                  <div className={`w-6 h-0.5 mb-4 ${i < currentIdx ? 'bg-blue-400' : 'bg-slate-200'}`} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    // ─── 차량 상세 모달 ──────────────────────────────────────────────────────
+    function VehicleDetailModal({ vehicle, onClose, onUpdateCompany, onUpdateMemo, onUpdatePhone, onAddComment, onChangeStage }) {
+      if (!vehicle) return null;
+      const days = dayDiff(vehicle.intakeDate);
+
+      return (
+        <div
+          className="modal-overlay fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center sm:p-4"
+          onClick={e => e.target === e.currentTarget && onClose()}
+        >
+          <div className="modal-box bg-white w-full sm:max-w-xl sm:rounded-2xl rounded-t-2xl shadow-2xl max-h-[92vh] sm:max-h-[90vh] overflow-y-auto">
+
+            {/* 헤더 */}
+            <div className="sticky top-0 bg-white rounded-t-2xl border-b border-slate-100 px-5 py-4 flex items-start justify-between z-10">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-lg font-bold text-slate-800">{vehicle.plate}</span>
+                  {vehicle.delay && <span className="badge bg-red-100 text-red-500">⚠ 지연</span>}
+                </div>
+                <p className="text-sm text-slate-500">{vehicle.model} · {vehicle.year}년식</p>
+              </div>
+              <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-xl leading-none mt-1">✕</button>
+            </div>
+
+            <div className="px-5 py-4 space-y-5">
+
+              {/* 기본 정보 */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <InfoBlock label="입고일">
+                  {vehicle.intakeDate} <span className="text-slate-400 text-xs">({days}일차)</span>
+                </InfoBlock>
+                <InfoBlock label="업체">
+                  <EditableText
+                    value={vehicle.company}
+                    onChange={v => onUpdateCompany(vehicle.id, v || vehicle.company)}
+                    prefix="🏢"
+                  />
+                </InfoBlock>
+                <InfoBlock label="전화번호">
+                  <EditableText
+                    value={vehicle.phone || ''}
+                    onChange={v => onUpdatePhone(vehicle.id, v)}
+                    prefix="📞"
+                    placeholder="번호 입력..."
+                  />
+                </InfoBlock>
+                <InfoBlock label="현재 단계">
+                  <StageBadge stageId={vehicle.stage} />
+                </InfoBlock>
+                <InfoBlock label="메모">
+                  <EditableText
+                    value={vehicle.memo}
+                    onChange={v => onUpdateMemo(vehicle.id, v)}
+                    placeholder="메모 입력..."
+                    multiline
+                  />
+                </InfoBlock>
+              </div>
+
+              {/* 단계 변경 */}
+              <div>
+                <p className="text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wide">단계 변경</p>
+                <div className="flex gap-1.5 overflow-x-auto pb-1">
+                  {STAGES.map(s => {
+                    const active = vehicle.stage === s.id;
+                    return (
+                      <button
+                        key={s.id}
+                        onClick={() => !active && onChangeStage(vehicle.id, s.id)}
+                        className={`shrink-0 flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                          active
+                            ? `${s.color} ring-2 ring-offset-1 ring-current shadow-sm`
+                            : 'bg-slate-50 text-slate-400 hover:bg-slate-100 active:bg-slate-200'
+                        }`}
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-full ${active ? s.dot : 'bg-slate-300'}`} />
+                        {s.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 진행 단계 */}
+              <div>
+                <p className="text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wide">작업 진행 단계</p>
+                <StageProgressBar currentStage={vehicle.stage} />
+              </div>
+
+
+              {/* 댓글 */}
+              <div className="border-t border-slate-100 pt-5">
+                <CommentSection
+                  comments={vehicle.comments || []}
+                  onAdd={data => onAddComment(vehicle.id, data)}
+                />
+              </div>
+
+              {/* 작업 이력 */}
+              <div className="border-t border-slate-100 pt-5">
+                <p className="text-xs font-semibold text-slate-400 mb-3 uppercase tracking-wide">작업 이력</p>
+                <div className="relative">
+                  <div className="absolute left-3 top-0 bottom-0 w-px bg-slate-100"></div>
+                  <div className="space-y-3 pl-8">
+                    {vehicle.history.map((h, i) => (
+                      <div key={i} className="relative">
+                        <div className="absolute -left-5 top-1 w-2 h-2 rounded-full bg-blue-400 border-2 border-white"></div>
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <StageBadge stageId={h.stage} small />
+                            <p className="text-xs text-slate-600 mt-1">{h.note}</p>
+                          </div>
+                          <span className="text-[11px] text-slate-400 whitespace-nowrap shrink-0">{h.date}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function InfoBlock({ label, children }) {
+      return (
+        <div className="bg-slate-50 rounded-xl p-3">
+          <p className="text-[11px] text-slate-400 mb-1">{label}</p>
+          <div className="text-sm font-medium text-slate-700">{children}</div>
+        </div>
+      );
+    }
+
+    // ─── 댓글 섹션 ──────────────────────────────────────────────────────────
+    function CommentSection({ comments, onAdd }) {
+      const [text, setText]     = useState('');
+      const [author, setAuthor] = useState(() => localStorage.getItem('comment_author') || '');
+      const bottomRef = useRef(null);
+
+      function handleSubmit(e) {
+        e.preventDefault();
+        if (!text.trim() || !author.trim()) return;
+        localStorage.setItem('comment_author', author.trim());
+        onAdd({ author: author.trim(), text: text.trim() });
+        setText('');
+        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+      }
+
+      function initials(name) {
+        return name ? name.charAt(0) : '?';
+      }
+
+      const colors = ['bg-blue-500','bg-violet-500','bg-cyan-500','bg-orange-400','bg-green-500','bg-rose-500'];
+      function avatarColor(name) {
+        let h = 0;
+        for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
+        return colors[Math.abs(h) % colors.length];
+      }
+
+      return (
+        <div>
+          <p className="text-xs font-semibold text-slate-400 mb-3 uppercase tracking-wide">
+            댓글 <span className="text-slate-300 font-normal">{comments.length}</span>
+          </p>
+
+          {/* 댓글 목록 */}
+          <div className="space-y-3 mb-4">
+            {comments.length === 0 && (
+              <p className="text-xs text-slate-300 text-center py-4">첫 댓글을 남겨보세요</p>
+            )}
+            {comments.map(c => (
+              <div key={c.id} className="flex gap-2.5">
+                <div className={`w-7 h-7 rounded-full ${avatarColor(c.author)} flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5`}>
+                  {initials(c.author)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-baseline gap-2 mb-1">
+                    <span className="text-xs font-semibold text-slate-700">{c.author}</span>
+                    <span className="text-[10px] text-slate-400">{c.date}</span>
+                  </div>
+                  <div className="bg-slate-50 rounded-xl rounded-tl-sm px-3 py-2 text-sm text-slate-700 leading-relaxed">
+                    {c.text}
+                  </div>
+                </div>
+              </div>
+            ))}
+            <div ref={bottomRef} />
+          </div>
+
+          {/* 댓글 입력 */}
+          <form onSubmit={handleSubmit} className="border border-slate-200 rounded-xl overflow-hidden focus-within:border-blue-300 focus-within:ring-2 focus-within:ring-blue-100 transition-all">
+            <textarea
+              rows={2}
+              placeholder="댓글을 입력하세요..."
+              value={text}
+              onChange={e => setText(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSubmit(e); }}
+              className="w-full text-sm px-3 pt-2.5 pb-1 resize-none focus:outline-none placeholder-slate-300"
+            />
+            <div className="flex items-center gap-2 px-3 pb-2.5 pt-1 bg-white">
+              <input
+                placeholder="이름"
+                value={author}
+                onChange={e => setAuthor(e.target.value)}
+                className="text-xs border border-slate-200 rounded-lg px-2 py-1 w-24 focus:outline-none focus:ring-1 focus:ring-blue-200 placeholder-slate-300"
+              />
+              <span className="text-[10px] text-slate-300 flex-1">Ctrl+Enter로 등록</span>
+              <button
+                type="submit"
+                disabled={!text.trim() || !author.trim()}
+                className="text-xs bg-blue-500 hover:bg-blue-600 disabled:bg-slate-200 disabled:text-slate-400 text-white font-semibold rounded-lg px-3 py-1.5 transition-colors"
+              >등록</button>
+            </div>
+          </form>
+        </div>
+      );
+    }
+
+    // ─── 날짜별 현황 모달 (달력) ─────────────────────────────────────────────
+    const DOW = ['일','월','화','수','목','금','토'];
+
+    function DateViewModal({ vehicles, onClose, onSelectDate }) {
+      const TODAY = '2026-06-08';
+      const [calYear,  setCalYear]  = useState(2026);
+      const [calMonth, setCalMonth] = useState(6);      // 1~12
+      const [selected, setSelected] = useState(TODAY);
+
+      // 날짜별 차량 수
+      const countByDate = useMemo(() => {
+        const m = {};
+        vehicles.forEach(v => { m[v.intakeDate] = (m[v.intakeDate] || 0) + 1; });
+        return m;
+      }, [vehicles]);
+
+      // 달력 그리드 생성
+      const calDays = useMemo(() => {
+        const firstDow = new Date(calYear, calMonth - 1, 1).getDay(); // 0=일
+        const lastDate = new Date(calYear, calMonth, 0).getDate();
+        const cells = Array(firstDow).fill(null);
+        for (let d = 1; d <= lastDate; d++) {
+          cells.push(`${calYear}-${String(calMonth).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
+        }
+        // 마지막 주 빈칸 채우기 (7의 배수)
+        while (cells.length % 7 !== 0) cells.push(null);
+        return cells;
+      }, [calYear, calMonth]);
+
+      function prevMonth() {
+        if (calMonth === 1) { setCalYear(y => y - 1); setCalMonth(12); }
+        else setCalMonth(m => m - 1);
+      }
+      function nextMonth() {
+        if (calMonth === 12) { setCalYear(y => y + 1); setCalMonth(1); }
+        else setCalMonth(m => m + 1);
+      }
+
+      const dayVehicles  = vehicles.filter(v => v.intakeDate === selected);
+      const selParts     = selected ? selected.split('-') : [];
+      const selLabel     = selParts.length === 3 ? `${selParts[1]}월 ${selParts[2]}일` : '';
+
+      const stageSummary = useMemo(() => {
+        const m = {};
+        STAGES.forEach(s => { m[s.id] = 0; });
+        dayVehicles.forEach(v => { if (m[v.stage] !== undefined) m[v.stage]++; });
+        return m;
+      }, [dayVehicles]);
+
+      return (
+        <div className="modal-overlay fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center sm:p-4"
+          onClick={e => e.target === e.currentTarget && onClose()}>
+          <div className="modal-box bg-white w-full sm:max-w-sm sm:rounded-2xl rounded-t-2xl shadow-2xl max-h-[92vh] sm:max-h-[90vh] flex flex-col overflow-hidden">
+
+            {/* 헤더 */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
+              <h2 className="font-bold text-slate-800 text-base">📅 날짜별 현황</h2>
+              <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-xl leading-none">✕</button>
+            </div>
+
+            {/* 달력 */}
+            <div className="px-4 pt-4 pb-2 shrink-0">
+              {/* 월 네비 */}
+              <div className="flex items-center justify-between mb-3">
+                <button onClick={prevMonth}
+                  className="w-8 h-8 rounded-full hover:bg-slate-100 active:bg-slate-200 text-slate-500 flex items-center justify-center text-lg transition-colors">‹</button>
+                <span className="font-bold text-slate-800 text-sm">{calYear}년 {calMonth}월</span>
+                <button onClick={nextMonth}
+                  className="w-8 h-8 rounded-full hover:bg-slate-100 active:bg-slate-200 text-slate-500 flex items-center justify-center text-lg transition-colors">›</button>
+              </div>
+
+              {/* 요일 헤더 */}
+              <div className="grid grid-cols-7 mb-1">
+                {DOW.map((d, i) => (
+                  <div key={d} className={`text-center text-[11px] font-semibold py-1
+                    ${i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-slate-400'}`}>
+                    {d}
+                  </div>
+                ))}
+              </div>
+
+              {/* 날짜 셀 */}
+              <div className="grid grid-cols-7 gap-y-1">
+                {calDays.map((date, i) => {
+                  if (!date) return <div key={i} />;
+                  const day     = parseInt(date.split('-')[2]);
+                  const dow     = new Date(date).getDay();
+                  const cnt     = countByDate[date] || 0;
+                  const isSel   = date === selected;
+                  const isToday = date === TODAY;
+                  return (
+                    <button key={date} onClick={() => { setSelected(date); if (countByDate[date]) onSelectDate(date); }}
+                      className={`relative flex flex-col items-center justify-center rounded-xl py-1.5 transition-all active:scale-95
+                        ${isSel
+                          ? 'bg-blue-500 text-white shadow-sm'
+                          : cnt > 0
+                            ? 'bg-blue-50 hover:bg-blue-100'
+                            : 'hover:bg-slate-50'
+                        }
+                        ${isToday && !isSel ? 'ring-2 ring-blue-300' : ''}`}
+                    >
+                      <span className={`text-xs font-semibold leading-tight
+                        ${isSel ? 'text-white' : dow === 0 ? 'text-red-400' : dow === 6 ? 'text-blue-500' : 'text-slate-700'}`}>
+                        {day}
+                      </span>
+                      {cnt > 0 && (
+                        <span className={`text-[9px] font-bold leading-tight ${isSel ? 'text-blue-200' : 'text-blue-400'}`}>
+                          {cnt}대
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 선택 날짜 차량 목록 */}
+            <div className="border-t border-slate-100 overflow-y-auto flex-1">
+              {/* 선택 날짜 요약 */}
+              <div className="px-4 py-3 bg-slate-50 flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-bold text-slate-700">{selLabel}</span>
+                <span className="text-xs text-slate-400">{dayVehicles.length}대</span>
+                {STAGES.map(s => stageSummary[s.id] > 0 && (
+                  <span key={s.id} className={`badge ${s.color}`}>{s.label} {stageSummary[s.id]}</span>
+                ))}
+              </div>
+
+              <div className="p-3 space-y-2">
+                {dayVehicles.length === 0 ? (
+                  <div className="text-center py-8 text-slate-300">
+                    <p className="text-2xl mb-1">🚗</p>
+                    <p className="text-xs">해당 날짜에 차량이 없습니다</p>
+                  </div>
+                ) : dayVehicles.map(v => (
+                  <div key={v.id} className="bg-white rounded-xl border border-slate-100 p-3 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span className="font-bold text-sm text-slate-800">{v.plate}</span>
+                        {v.delay && <span className="badge bg-red-100 text-red-500 text-[10px]">⚠</span>}
+                      </div>
+                      <p className="text-xs text-slate-500 truncate">{v.model}</p>
+                      {v.phone && <p className="text-[11px] text-slate-400">📞 {v.phone}</p>}
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <StageBadge stageId={v.stage} />
+                      <p className="text-[10px] text-slate-400 mt-1">🏢 {v.company}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── 앱 루트 ─────────────────────────────────────────────────────────────
+    function App() {
+      const [vehicles, setVehicles]       = useState(INITIAL_VEHICLES);
+      const [filter, setFilter]           = useState({ company: '', stage: '', delay: '' });
+      const [selected, setSelected]       = useState(null);
+      const [dragId, setDragId]               = useState(null);
+      const [dragOverId, setDragOverId]       = useState(null);
+      const [dragOverStage, setDragOverStage] = useState(null);
+      const [addingStage, setAddingStage]     = useState(null);
+      const [showDateView, setShowDateView]   = useState(false);
+      const [dateFilter,   setDateFilter]     = useState(null); // 'YYYY-MM-DD' | null
+      const nextId = useRef(INITIAL_VEHICLES.length + 1);
+
+      function handleUpdate(id, field, value) {
+        setVehicles(vs => vs.map(v => v.id === id ? {...v, [field]: value} : v));
+        setSelected(s => s && s.id === id ? {...s, [field]: value} : s);
+      }
+
+      function handleMoveInColumn(id, dir) {
+        setVehicles(vs => {
+          const v = vs.find(x => x.id === id);
+          if (!v) return vs;
+          const same = vs.filter(x => x.stage === v.stage);
+          const idx  = same.findIndex(x => x.id === id);
+          const swapIdx = dir === 'up' ? idx - 1 : idx + 1;
+          if (swapIdx < 0 || swapIdx >= same.length) return vs;
+          const swapId = same[swapIdx].id;
+          const ai = vs.findIndex(x => x.id === id);
+          const bi = vs.findIndex(x => x.id === swapId);
+          const next = [...vs];
+          [next[ai], next[bi]] = [next[bi], next[ai]];
+          return next;
+        });
+      }
+
+      function handleChangeStage(id, stageId) {
+        const now = new Date();
+        const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+        const updater = v => v.id !== id || v.stage === stageId ? v : {
+          ...v, stage: stageId,
+          history: [...v.history, { stage: stageId, date: dateStr, note: `${STAGE_MAP[stageId].label} 단계로 이동` }]
+        };
+        setVehicles(vs => vs.map(updater));
+        setSelected(s => s && s.id === id ? updater(s) : s);
+      }
+
+      function handleAddComment(id, { author, text }) {
+        const now = new Date();
+        const date = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+        const comment = { id: `c${Date.now()}`, author, text, date };
+        const updater = v => v.id === id ? { ...v, comments: [...(v.comments || []), comment] } : v;
+        setVehicles(vs => vs.map(updater));
+        setSelected(s => s && s.id === id ? updater(s) : s);
+      }
+
+      function handleAddSubmit(stageId, { plate, model, company, phone, memo }) {
+        const id = `v${nextId.current++}`;
+        const now = new Date();
+        const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+        const timeStr = `${dateStr} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+        setVehicles(vs => [...vs, {
+          id, plate, model: model || '미입력', year: new Date().getFullYear(),
+          intakeDate: dateStr, company: company || '미입력', phone: phone || '', stage: stageId,
+          delay: false, memo,
+          history: [{ stage: stageId, date: timeStr, note: '카드 추가' }],
+        }]);
+        setAddingStage(null);
+      }
+
+      function handleDrop(stageId) {
+        if (!dragId) return;
+        const now = new Date();
+        const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+
+        setVehicles(vs => {
+          const dragged = vs.find(v => v.id === dragId);
+          if (!dragged) return vs;
+
+          const stageChanged = dragged.stage !== stageId;
+          const updated = stageChanged
+            ? { ...dragged, stage: stageId, history: [...dragged.history, { stage: stageId, date: dateStr, note: `${STAGE_MAP[stageId].label} 단계로 이동` }] }
+            : dragged;
+
+          // 드래그 대상 제외한 배열
+          const rest = vs.filter(v => v.id !== dragId);
+
+          // dragOverId가 같은 컬럼 안의 카드일 때 → 그 앞에 삽입
+          const overCardIdx = dragOverId ? rest.findIndex(v => v.id === dragOverId && v.stage === stageId) : -1;
+
+          if (overCardIdx !== -1) {
+            const next = [...rest];
+            next.splice(overCardIdx, 0, updated);
+            return next;
+          }
+
+          // 그 외 → 해당 컬럼 카드들 맨 뒤에 추가
+          return [...rest, updated];
+        });
+
+        setDragId(null);
+        setDragOverId(null);
+        setDragOverStage(null);
+      }
+
+      const filtered = useMemo(() => vehicles.filter(v => {
+        if (dateFilter && v.intakeDate !== dateFilter) return false;
+        if (filter.company && !v.company.toLowerCase().includes(filter.company.toLowerCase())) return false;
+        if (filter.stage   && v.stage !== filter.stage) return false;
+        if (filter.delay === 'delay'  && !v.delay) return false;
+        if (filter.delay === 'normal' &&  v.delay) return false;
+        return true;
+      }), [vehicles, filter, dateFilter]);
+
+      function fmtDate(d) {
+        if (!d) return '';
+        const [y, m, day] = d.split('-');
+        return `${y}년 ${m}월 ${day}일`;
+      }
+
+      return (
+        <div className="min-h-screen bg-slate-50">
+          <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-4 sticky top-0 z-40">
+            <div className="max-w-screen-2xl mx-auto flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white text-sm font-bold">세</div>
+                <div>
+                  <h1 className="text-base font-bold text-slate-800 leading-tight">영보스에게 드리는 선물</h1>
+                  <p className="text-[11px] text-slate-400 hidden sm:block">Car Detailing Dashboard</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowDateView(true)}
+                className="text-xs text-slate-400 hover:text-blue-500 hover:bg-blue-50 px-2 py-1 rounded-lg transition-all border border-transparent hover:border-blue-200"
+                title="날짜별 현황 보기"
+              >📅 2026-06-08</button>
+            </div>
+          </header>
+
+          {/* 날짜 필터 배너 */}
+          {dateFilter && (
+            <div className="bg-blue-600 text-white px-4 sm:px-6 py-2.5 flex items-center gap-3">
+              <button
+                onClick={() => { setDateFilter(null); setFilter({ company: '', stage: '', delay: '' }); }}
+                className="text-blue-200 hover:text-white text-sm flex items-center gap-1 shrink-0"
+              >← 전체</button>
+              <span className="text-sm font-semibold flex-1 truncate">
+                📅 {fmtDate(dateFilter)} 작업 현황
+              </span>
+              <span className="text-blue-200 text-xs shrink-0">{filtered.length}대</span>
+            </div>
+          )}
+
+          <main className="max-w-screen-2xl mx-auto px-3 sm:px-6 py-4">
+            <SummaryCards vehicles={dateFilter ? filtered : vehicles} />
+            <FilterBar vehicles={vehicles} filter={filter} setFilter={setFilter} />
+
+            {filtered.length === 0
+              ? (
+                <div className="bg-white rounded-xl border border-slate-100 p-12 text-center text-slate-400">
+                  <p className="text-3xl mb-3">🔍</p>
+                  <p className="font-medium">조건에 맞는 차량이 없습니다.</p>
+                </div>
+              )
+              : (
+                <KanbanBoard
+                  vehicles={filtered}
+                  onCardClick={setSelected}
+                  dragId={dragId}
+                  dragOverId={dragOverId}
+                  dragOverStage={dragOverStage}
+                  onDragStart={setDragId}
+                  onDragOver={setDragOverStage}
+                  onDragLeave={() => { setDragOverStage(null); setDragOverId(null); }}
+                  onDrop={handleDrop}
+                  onCardDragOver={setDragOverId}
+                  onChangeStage={handleChangeStage}
+                  onMoveInColumn={handleMoveInColumn}
+                  addingStage={addingStage}
+                  onAddStart={setAddingStage}
+                  onAddSubmit={handleAddSubmit}
+                  onAddCancel={() => setAddingStage(null)}
+                />
+              )
+            }
+
+            <p className="text-center text-xs text-slate-300 mt-6">카드를 드래그해서 단계 이동 · 클릭하면 상세 보기</p>
+          </main>
+
+          {showDateView && (
+            <DateViewModal
+              vehicles={vehicles}
+              onClose={() => setShowDateView(false)}
+              onSelectDate={date => {
+                setDateFilter(date);
+                setFilter({ company: '', stage: '', delay: '' });
+                setShowDateView(false);
+              }}
+            />
+          )}
+
+          {selected && (
+            <VehicleDetailModal
+              vehicle={selected}
+              onClose={() => setSelected(null)}
+              onUpdateCompany={(id, v) => handleUpdate(id, 'company', v)}
+              onUpdateMemo={(id, v) => handleUpdate(id, 'memo', v)}
+              onUpdatePhone={(id, v) => handleUpdate(id, 'phone', v)}
+              onAddComment={handleAddComment}
+              onChangeStage={handleChangeStage}
+            />
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
