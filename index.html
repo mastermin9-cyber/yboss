@@ -861,6 +861,7 @@
       const nextId       = useRef(1);
       const fbRef        = useRef(null);
       const skipWrite    = useRef(false);
+      const fbReady      = useRef(false); // Firebase 첫 응답 받은 후에만 쓰기 허용
 
       // ── Firebase 초기화 ────────────────────────────────────────────────
       useEffect(() => {
@@ -871,23 +872,26 @@
           catch(e) { app = firebase.initializeApp({ databaseURL: fbUrl }, 'yb'); }
           const ref = firebase.database(app).ref('ybossData');
           fbRef.current = ref;
+          fbReady.current = false;
           ref.on('value', snap => {
             const d = snap.val();
             if (d?.vehicles && Array.isArray(d.vehicles) && d.vehicles.length > 0) {
               skipWrite.current = true;
               setVehicles(d.vehicles);
-              const maxId = d.vehicles.reduce((m, v) => Math.max(m, parseInt(v.id.replace('v','')) || 0), 0);
+              const maxId = d.vehicles.reduce((m, v) => Math.max(m, parseInt((v.id||'').replace('v','')) || 0), 0);
               nextId.current = maxId + 1;
             }
+            fbReady.current = true;
             setFbOk(true);
           }, () => setFbOk(false));
           return () => ref.off();
         } catch(e) { console.error(e); setFbOk(false); }
       }, [fbUrl]);
 
-      // ── vehicles 변경 시 Firebase에 저장 ──────────────────────────────
+      // ── vehicles 변경 시 Firebase에 저장 (첫 로드 후에만) ────────────
       useEffect(() => {
         if (!fbRef.current) return;
+        if (!fbReady.current) return; // Firebase 응답 전엔 쓰지 않음
         if (skipWrite.current) { skipWrite.current = false; return; }
         fbRef.current.set({ vehicles });
       }, [vehicles]);
