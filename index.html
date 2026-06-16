@@ -1052,34 +1052,24 @@
             <SummaryCards vehicles={dateFilter ? filtered : vehicles} />
             <FilterBar vehicles={vehicles} filter={filter} setFilter={setFilter} />
 
-            {filtered.length === 0
-              ? (
-                <div className="bg-white rounded-xl border border-slate-100 p-12 text-center text-slate-400">
-                  <p className="text-3xl mb-3">🔍</p>
-                  <p className="font-medium">조건에 맞는 차량이 없습니다.</p>
-                </div>
-              )
-              : (
-                <KanbanBoard
-                  vehicles={filtered}
-                  onCardClick={setSelected}
-                  dragId={dragId}
-                  dragOverId={dragOverId}
-                  dragOverStage={dragOverStage}
-                  onDragStart={setDragId}
-                  onDragOver={setDragOverStage}
-                  onDragLeave={() => { setDragOverStage(null); setDragOverId(null); }}
-                  onDrop={handleDrop}
-                  onCardDragOver={setDragOverId}
-                  onChangeStage={handleChangeStage}
-                  onMoveInColumn={handleMoveInColumn}
-                  addingStage={addingStage}
-                  onAddStart={setAddingStage}
-                  onAddSubmit={handleAddSubmit}
-                  onAddCancel={() => setAddingStage(null)}
-                />
-              )
-            }
+            <KanbanBoard
+              vehicles={filtered}
+              onCardClick={setSelected}
+              dragId={dragId}
+              dragOverId={dragOverId}
+              dragOverStage={dragOverStage}
+              onDragStart={setDragId}
+              onDragOver={setDragOverStage}
+              onDragLeave={() => { setDragOverStage(null); setDragOverId(null); }}
+              onDrop={handleDrop}
+              onCardDragOver={setDragOverId}
+              onChangeStage={handleChangeStage}
+              onMoveInColumn={handleMoveInColumn}
+              addingStage={addingStage}
+              onAddStart={setAddingStage}
+              onAddSubmit={handleAddSubmit}
+              onAddCancel={() => setAddingStage(null)}
+            />
 
             <p className="text-center text-xs text-slate-300 mt-6">카드를 드래그해서 단계 이동 · 클릭하면 상세 보기</p>
           </main>
