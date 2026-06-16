@@ -53,7 +53,118 @@
 
     const STAGE_MAP = Object.fromEntries(STAGES.map(s => [s.id, s]));
 
-    const INITIAL_VEHICLES = [];
+    // ─── 샘플 데이터 ────────────────────────────────────────────────────────
+    const INITIAL_VEHICLES = [
+      {
+        id: 'v1', plate: '12가 3456', model: '현대 아반떼 CN7', year: 2021,
+        intakeDate: '2026-06-08', company: '카리스모터스', phone: '010-1234-5678', stage: 'pickup',
+        delay: false, memo: '오후 2시 픽업 예정',
+        history: [{ stage: 'pickup', date: '2026-06-08 09:00', note: '픽업 요청 접수' }],
+        comments: [{ id: 'c1', author: '김민준', text: '픽업 기사 배정 완료했습니다.', date: '2026-06-08 09:30' }]
+      },
+      {
+        id: 'v2', plate: '34나 5678', model: '기아 K5 3세대', year: 2022,
+        intakeDate: '2026-06-08', company: '드라이브오토', phone: '010-9876-5432', stage: 'pickup',
+        delay: false, memo: '',
+        history: [{ stage: 'pickup', date: '2026-06-08 10:30', note: '픽업 기사 배정 완료' }],
+        comments: []
+      },
+      {
+        id: 'v3', plate: '56다 7890', model: '쉐보레 말리부 9세대', year: 2020,
+        intakeDate: '2026-06-07', company: '한국중고차', phone: '031-555-1234', stage: 'pickup_done',
+        delay: true, memo: '실내 오염 심함, 추가 작업 협의 필요',
+        history: [
+          { stage: 'pickup',      date: '2026-06-07 09:00', note: '픽업 요청' },
+          { stage: 'pickup_done', date: '2026-06-07 13:00', note: '픽업 완료 입고' },
+        ],
+        comments: [{ id: 'c1', author: '박지호', text: '실내 오염 심해서 추가 비용 협의 필요합니다. 업체에 연락했습니다.', date: '2026-06-07 15:00' }]
+      },
+      {
+        id: 'v4', plate: '78라 9012', model: '현대 소나타 DN8', year: 2022,
+        intakeDate: '2026-06-06', company: '스마트카딜러', phone: '010-3344-5566', stage: 'pickup_done',
+        delay: false, memo: '',
+        history: [
+          { stage: 'pickup',      date: '2026-06-06 09:00', note: '픽업 요청' },
+          { stage: 'pickup_done', date: '2026-06-06 14:00', note: '픽업 완료' },
+        ],
+        comments: []
+      },
+      {
+        id: 'v5', plate: '90마 1234', model: '기아 스포티지 NQ5', year: 2023,
+        intakeDate: '2026-06-05', company: '프리미엄오토', phone: '010-7788-9900', stage: 'polish',
+        delay: false, memo: '유리막 코팅 추가 요청',
+        history: [
+          { stage: 'pickup',      date: '2026-06-05 09:00', note: '픽업 요청' },
+          { stage: 'pickup_done', date: '2026-06-05 13:00', note: '픽업 완료' },
+          { stage: 'polish',      date: '2026-06-06 09:00', note: '광택 작업 진행 중' },
+        ],
+        comments: []
+      },
+      {
+        id: 'v6', plate: '11바 2345', model: '현대 그랜저 IG', year: 2019,
+        intakeDate: '2026-06-04', company: '카리스모터스', phone: '010-1234-5678', stage: 'polish',
+        delay: true, memo: '도막 상태 불량, 재광택 진행',
+        history: [
+          { stage: 'pickup',      date: '2026-06-04 09:00', note: '픽업' },
+          { stage: 'pickup_done', date: '2026-06-04 12:00', note: '픽업 완료' },
+          { stage: 'polish',      date: '2026-06-05 09:00', note: '1차 광택 후 재작업' },
+        ],
+        comments: [
+          { id: 'c1', author: '김민준', text: '1차 광택 완료했으나 도막 상태가 좋지 않아 재작업 들어갑니다.', date: '2026-06-05 11:00' },
+          { id: 'c2', author: '이서연', text: '재광택 예상 완료 시간은 오늘 오후 5시입니다.', date: '2026-06-05 13:30' },
+        ]
+      },
+      {
+        id: 'v7', plate: '22사 3456', model: '기아 K7 2세대', year: 2020,
+        intakeDate: '2026-06-04', company: '드라이브오토', phone: '010-9876-5432', stage: 'wash',
+        delay: false, memo: '',
+        history: [
+          { stage: 'pickup',      date: '2026-06-04 10:00', note: '픽업' },
+          { stage: 'pickup_done', date: '2026-06-04 15:00', note: '픽업 완료' },
+          { stage: 'polish',      date: '2026-06-05 10:00', note: '광택 완료' },
+          { stage: 'wash',        date: '2026-06-06 09:00', note: '세차 진행 중' },
+        ],
+        comments: []
+      },
+      {
+        id: 'v8', plate: '33아 4567', model: '현대 투싼 NX4', year: 2022,
+        intakeDate: '2026-06-05', company: '한국중고차', phone: '031-555-1234', stage: 'wash',
+        delay: false, memo: '',
+        history: [
+          { stage: 'pickup',      date: '2026-06-05 09:00', note: '픽업' },
+          { stage: 'pickup_done', date: '2026-06-05 13:00', note: '픽업 완료' },
+          { stage: 'polish',      date: '2026-06-06 09:00', note: '광택 완료' },
+          { stage: 'wash',        date: '2026-06-07 09:00', note: '실내외 세차 중' },
+        ],
+        comments: []
+      },
+      {
+        id: 'v9', plate: '44자 5678', model: 'BMW 320i G20', year: 2021,
+        intakeDate: '2026-06-03', company: '스마트카딜러', phone: '010-3344-5566', stage: 'done',
+        delay: false, memo: '',
+        history: [
+          { stage: 'pickup',      date: '2026-06-03 09:00', note: '픽업' },
+          { stage: 'pickup_done', date: '2026-06-03 13:00', note: '픽업 완료' },
+          { stage: 'polish',      date: '2026-06-04 09:00', note: '광택 완료' },
+          { stage: 'wash',        date: '2026-06-05 09:00', note: '세차 완료' },
+          { stage: 'done',        date: '2026-06-06 11:00', note: '업체 출고 완료' },
+        ],
+        comments: [{ id: 'c1', author: '최유진', text: '출고 완료. 업체 담당자 수령 확인했습니다.', date: '2026-06-06 11:30' }]
+      },
+      {
+        id: 'v10', plate: '55차 6789', model: '벤츠 C200 W206', year: 2023,
+        intakeDate: '2026-06-02', company: '프리미엄오토', phone: '010-7788-9900', stage: 'done',
+        delay: false, memo: '',
+        history: [
+          { stage: 'pickup',      date: '2026-06-02 10:00', note: '픽업' },
+          { stage: 'pickup_done', date: '2026-06-02 15:00', note: '픽업 완료' },
+          { stage: 'polish',      date: '2026-06-03 09:00', note: '광택 + 유리막 완료' },
+          { stage: 'wash',        date: '2026-06-04 09:00', note: '세차 완료' },
+          { stage: 'done',        date: '2026-06-05 10:00', note: '출고 완료' },
+        ],
+        comments: []
+      },
+    ];
 
     // ─── 유틸 ────────────────────────────────────────────────────────────────
     function todayStr() {
@@ -858,7 +969,7 @@
       const [fbUrl, setFbUrl]                 = useState(() => localStorage.getItem('yb_fb_url') || '');
       const [fbOk, setFbOk]                   = useState(false);
       const [showFbSetup, setShowFbSetup]     = useState(false);
-      const nextId       = useRef(1);
+      const nextId       = useRef(INITIAL_VEHICLES.length + 1);
       const fbRef        = useRef(null);
       const skipWrite    = useRef(false);
 
@@ -876,8 +987,7 @@
             if (d?.vehicles && Array.isArray(d.vehicles) && d.vehicles.length > 0) {
               skipWrite.current = true;
               setVehicles(d.vehicles);
-              const maxId = d.vehicles.reduce((m, v) => Math.max(m, parseInt(v.id.replace('v','')) || 0), 0);
-              nextId.current = maxId + 1;
+              nextId.current = d.vehicles.length + 1;
             }
             setFbOk(true);
           }, () => setFbOk(false));
@@ -1016,18 +1126,6 @@
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {fbOk && (
-                  <button
-                    onClick={() => {
-                      if (!confirm('모든 데이터를 삭제합니다. 계속할까요?')) return;
-                      setVehicles([]);
-                      nextId.current = 1;
-                      if (fbRef.current) fbRef.current.set({ vehicles: [] });
-                    }}
-                    className="text-[10px] px-2 py-1 rounded-lg font-semibold border border-red-200 text-red-400 hover:bg-red-50 transition-all">
-                    🗑 전체삭제
-                  </button>
-                )}
                 <button onClick={() => setShowFbSetup(true)}
                   className={`text-[10px] px-2 py-1 rounded-lg font-semibold flex items-center gap-1 border transition-all
                     ${fbOk ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'text-slate-400 border-slate-200 hover:bg-slate-50'}`}>
