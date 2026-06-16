@@ -53,8 +53,9 @@
 
     const STAGE_MAP = Object.fromEntries(STAGES.map(s => [s.id, s]));
 
-    // ─── 샘플 데이터 ────────────────────────────────────────────────────────
-    const INITIAL_VEHICLES = [
+    // ─── 초기 데이터 (비어있음) ──────────────────────────────────────────────
+    const INITIAL_VEHICLES = [];
+    const _UNUSED = [
       {
         id: 'v1', plate: '12가 3456', model: '현대 아반떼 CN7', year: 2021,
         intakeDate: '2026-06-08', company: '카리스모터스', phone: '010-1234-5678', stage: 'pickup',
@@ -164,7 +165,7 @@
         ],
         comments: []
       },
-    ];
+    ]; // _UNUSED 끝
 
     // ─── 유틸 ────────────────────────────────────────────────────────────────
     function todayStr() {
@@ -969,7 +970,7 @@
       const [fbUrl, setFbUrl]                 = useState(() => localStorage.getItem('yb_fb_url') || '');
       const [fbOk, setFbOk]                   = useState(false);
       const [showFbSetup, setShowFbSetup]     = useState(false);
-      const nextId       = useRef(INITIAL_VEHICLES.length + 1);
+      const nextId       = useRef(1);
       const fbRef        = useRef(null);
       const skipWrite    = useRef(false);
 
@@ -987,7 +988,8 @@
             if (d?.vehicles && Array.isArray(d.vehicles) && d.vehicles.length > 0) {
               skipWrite.current = true;
               setVehicles(d.vehicles);
-              nextId.current = d.vehicles.length + 1;
+              const maxId = d.vehicles.reduce((m, v) => Math.max(m, parseInt(v.id.replace('v','')) || 0), 0);
+              nextId.current = maxId + 1;
             }
             setFbOk(true);
           }, () => setFbOk(false));
@@ -1126,6 +1128,18 @@
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                {fbOk && (
+                  <button
+                    onClick={() => {
+                      if (!confirm('모든 데이터를 삭제합니다. 계속할까요?')) return;
+                      setVehicles([]);
+                      nextId.current = 1;
+                      if (fbRef.current) fbRef.current.set({ vehicles: [] });
+                    }}
+                    className="text-[10px] px-2 py-1 rounded-lg font-semibold border border-red-200 text-red-400 hover:bg-red-50 transition-all">
+                    🗑 전체삭제
+                  </button>
+                )}
                 <button onClick={() => setShowFbSetup(true)}
                   className={`text-[10px] px-2 py-1 rounded-lg font-semibold flex items-center gap-1 border transition-all
                     ${fbOk ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'text-slate-400 border-slate-200 hover:bg-slate-50'}`}>
