@@ -37,6 +37,19 @@
 </head>
 <body class="bg-slate-50 min-h-screen">
   <div id="root"></div>
+  <div id="err" style="display:none;position:fixed;top:0;left:0;right:0;background:#fee2e2;color:#991b1b;padding:16px;font-size:13px;z-index:9999;white-space:pre-wrap;"></div>
+  <script>
+    window.onerror = function(msg, src, line, col, err) {
+      var d = document.getElementById('err');
+      d.style.display = 'block';
+      d.textContent = '오류: ' + msg + '\n파일: ' + src + '\n줄: ' + line;
+    };
+    window.addEventListener('unhandledrejection', function(e) {
+      var d = document.getElementById('err');
+      d.style.display = 'block';
+      d.textContent = '비동기 오류: ' + (e.reason && e.reason.message || e.reason);
+    });
+  </script>
 
   <script type="text/babel">
     const { useState, useMemo, useRef, useEffect } = React;
